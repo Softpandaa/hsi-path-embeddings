@@ -1,6 +1,6 @@
 # Price Path Embeddings in a Hang Seng Index Portfolio
 
-This study explores whether embeddings of the recent trading history of a stock carry predictive information, and what they deliver in a portfolio. For each Hang Seng Index (HSI) stock, the daily return path over the past 240 trading days and technical indicators are embedded in two dimensions, linearly by principal component analysis (PCA) and nonlinearly by a variational autoencoder (VAE) with LSTM layers. A pooled regression maps the embedding to a forecast of next-month returns. In a USD 100 million long-only portfolio, the forecast selects the stocks, a Black-Litterman model constructs the weights, and listed HSI derivatives enhance yield through delta-hedged short calls and a put spread collar held at high volatility.
+This study explores whether embeddings of the recent trading history of a stock carry predictive information, and what they deliver in a portfolio. For each HSI stock, the daily return path over the past year and technical indicators are embedded in two dimensions, linearly by principal component analysis (PCA) and nonlinearly by a variational autoencoder (VAE) with LSTM layers. A pooled regression maps the embedding to a forecast of next-month returns. In a USD 100 million long-only portfolio, the forecast enters the Black-Litterman model to construct the weights, and listed HSI derivatives enhance yield through delta-hedged short calls and a put spread collar held at high volatility.
 
 ## Findings
 
