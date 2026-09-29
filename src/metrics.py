@@ -1,7 +1,7 @@
 """Performance statistics, absolute and relative to a benchmark.
 
 Inputs are daily simple returns; cash is the daily log return of one-month HIBOR.
-Annualisation uses the number of trading days per calendar year in the sample
+Annualization uses the number of trading days per calendar year in the sample
 (about 245 for Hong Kong), not 252.
 """
 

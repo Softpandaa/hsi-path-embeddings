@@ -18,11 +18,11 @@ The report is distributed as a compiled PDF. Its typesetting source is not inclu
 
 ## Data
 
-`data/stocks.csv.gz` holds the daily open, high, low and close, adjusted close, volume, dividends and splits from Yahoo Finance for the stocks that were HSI members at some date between January 2005 and August 2026. `data/hsi_membership.csv` gives the inclusion and removal dates of each member, built from the Hang Seng Indexes press releases listed with their links in `data/hsi_events.csv`. `data/hsi.csv`, `data/vhsi.csv`, `data/tracker_2800.csv` and `data/usdhkd.csv` are the HSI, the VHSI, the Tracker Fund of Hong Kong (2800.HK) and the USD/HKD rate from Yahoo Finance, and `data/hibor_fixing.csv` is the daily HIBOR fixing of the Hong Kong Monetary Authority. Seven codes are dropped in `config.py`, four without Yahoo data and three that Yahoo now assigns to another company.
+`data/stocks.csv.gz` holds the daily open, high, low and close, adjusted close, volume, dividends and splits from Yahoo Finance for the stocks that were HSI members at some date between January 2005 and August 2026. `data/hsi_membership.csv` gives the inclusion and removal dates of each member from the Hang Seng Indexes press releases. `data/hsi.csv`, `data/vhsi.csv`, `data/tracker_2800.csv` and `data/usdhkd.csv` are the HSI, the VHSI, the Tracker Fund of Hong Kong (2800.HK) and the USD/HKD rate from Yahoo Finance, and `data/hibor_fixing.csv` is the daily HIBOR fixing of the Hong Kong Monetary Authority. Seven codes are dropped in `config.py`, four without Yahoo data and three that Yahoo now assigns to another company.
 
 ## Reproducing
 
-Python 3.11.
+Python 3.13.
 
 ```
 pip install -r requirements.txt

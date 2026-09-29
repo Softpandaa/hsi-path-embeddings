@@ -1,17 +1,17 @@
 """Pooled LSTM-VAE: one encoder and decoder shared by every stock, latent size d = 2
-(config.LATENT, books M2) or d = 3 with --latent 3 (config.LATENT_M3, book M3).
+(config.LATENT, portfolios M2) or d = 3 with --latent 3 (config.LATENT_M3, portfolio M3).
 
 Input is a stock's 240-day sequence of the sixteen features. The decoder
-rebuilds the cumulative path of the standardised returns,
+rebuilds the cumulative path of the standardized returns,
 c_s = sum_{u <= s} r_u / sqrt(240), since the daily returns themselves are
 close to white noise and a latent cannot compress them. Training stops early
-on the final twelve months before each refit. After each refit the latent
-means are saved for every member day before the refit, which train the
-forecast, and for the twelve months that follow, which it is applied to.
+on the final twelve months before each refit. After each refit the embedding,
+the posterior mean, is saved for every member day before the refit, which
+trains the forecast, and for the twelve months that follow, which it is applied to.
 Run on a GPU where available:
 
     python -m src.vae                every September refit in config.REFITS, d = LATENT
-    python -m src.vae --latent 3     latent size 3 (files vae3_*, latent_vae3_*)
+    python -m src.vae --latent 3     latent size 3 (files vae3_*, embedding_vae3_*)
 """
 
 import argparse
@@ -88,7 +88,7 @@ def training_split(d, x, refit_pos):
 
 
 class Batcher:
-    """Gathers standardised windows on the device."""
+    """Gathers standardized windows on the device."""
 
     def __init__(self, x, mean, std, device):
         self.x = torch.tensor(np.nan_to_num(np.transpose(x, (1, 0, 2))), device=device)
@@ -113,7 +113,7 @@ class Batcher:
 
 def pooled_stats(x, t, j):
     """Feature means and deviations over the training days only. The return and
-    volume channels are left unscaled here and standardised per sequence."""
+    volume channels are left unscaled here and standardized per sequence."""
     vals = x[t, j]
     mean, std = vals.mean(axis=0), vals.std(axis=0)
     mean[[features.RET, features.VOL]] = 0.0
@@ -138,7 +138,7 @@ def evaluate(model, batch, t, j, gen_seed):
 
 
 def encode_all(model, batch, t, j):
-    """Latent means, with dropout off."""
+    """Posterior means, the embeddings, with dropout off."""
     model.eval()
     mus = []
     with torch.no_grad():
@@ -216,9 +216,9 @@ def main():
         torch.save(model.state_dict(), CACHE / f"{name}_{r.year}.pt")
         with open(CACHE / f"{name}_{r.year}.json", "w") as fh:
             json.dump(info, fh, indent=1)
-        np.savez_compressed(CACHE / f"latent_{name}_{r.year}.npz", day=t, stock=j, mu=encode_all(model, batch, t, j))
+        np.savez_compressed(CACHE / f"embedding_{name}_{r.year}.npz", day=t, stock=j, mu=encode_all(model, batch, t, j))
         print(f"  active units {info['active_units']} of {args.latent}, best epoch {info['best_epoch']}, "
-              f"n_train {info['n_train']}, latents saved {len(t)}")
+              f"n_train {info['n_train']}, embeddings saved {len(t)}")
 
 
 if __name__ == "__main__":

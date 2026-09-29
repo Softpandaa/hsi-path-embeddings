@@ -1,10 +1,10 @@
-"""Stock books: the universe, the clipped covariance, and the Black-Litterman
-books M1, M2 and M3 and equal weight.
+"""Stock portfolios: the universe, the clipped covariance, and the Black-Litterman
+portfolios M1, M2 and M3 and equal weight.
 
 At each rebalance tau, with information to the previous close and trades at the
 close of tau, in one-month units (h = HORIZON trading days):
-    universe  members with a price on tau, 252 complete returns before it, and a
-              latent on the previous day
+    universe  members with a price on tau, 252 complete returns before it, and an
+              embedding on the previous day
     Sigma     h times the sample covariance of the 252 daily log returns, correlation
               eigenvalues beyond the first K replaced by their average,
               K = min(#{lambda > (1 + sqrt(p/T))^2}, K_MAX), unit diagonal restored
@@ -12,11 +12,11 @@ close of tau, in one-month units (h = HORIZON trading days):
               the HSI as the market portfolio (He and Litterman 1999)
     M1        the prior alone, mu = Pi
     M2, M3    views that each stock beats its equilibrium return by its relative
-              forecast, q = Pi + s - mean(s), with Omega = diag(tau Sigma), so
-              mu = Pi + tau Sigma (tau Sigma + Omega)^{-1} (s - mean(s))
+              forecast, q = Pi + u - mean(u), with Omega = diag(zeta Sigma), so
+              mu = Pi + zeta Sigma (zeta Sigma + Omega)^{-1} (u - mean(u))
     both      max w'mu - delta/2 w'Sigma w  s.t.  1'w = 1, 0 <= w <= cap,
               a suspended stock keeps its drifted weight
-Books are held without trading inside the month and pay COST_BPS one way on turnover.
+Portfolios are held without trading inside the month and pay COST_BPS one way on turnover.
 """
 
 import numpy as np
@@ -26,12 +26,12 @@ from scipy.optimize import linprog, minimize
 from . import config
 
 
-def universe(d, pos, latent_day):
+def universe(d, pos, embedded):
     """Stock columns eligible at the rebalance in row pos."""
     adj = d["adj"].values
     window = adj[pos - config.WINDOW - 1:pos]                       # prices for 252 returns
     ok = np.isfinite(window).all(axis=0) & np.isfinite(adj[pos]) & d["member"].values[pos]
-    ok &= np.isin(np.arange(adj.shape[1]), latent_day)
+    ok &= np.isin(np.arange(adj.shape[1]), embedded)
     return np.nonzero(ok)[0]
 
 
@@ -58,14 +58,13 @@ def covariance(d, pos, cols):
     return sigma, pi
 
 
-def posterior(sigma, pi, score):
-    """Expected returns with the views q = Pi + s - mean(s), P = I and
-    Omega = diag(tau Sigma); tau cancels from the tilt."""
-    s = np.where(np.isfinite(score), score, np.nan)
-    s = np.where(np.isfinite(s), s - np.nanmean(s), 0.0)     # frozen names only; their weight is fixed
-    ts = config.BL_TAU * sigma
-    omega = np.diag(np.diag(ts))
-    return pi + ts @ np.linalg.solve(ts + omega, s)
+def posterior(sigma, pi, u):
+    """Expected returns with the views q = Pi + u - mean(u), P = I and
+    Omega = diag(zeta Sigma); zeta cancels from the tilt."""
+    u = np.where(np.isfinite(u), u - np.nanmean(u), 0.0)     # NaN for frozen names only; their weight is fixed
+    zs = config.BL_ZETA * sigma
+    omega = np.diag(np.diag(zs))
+    return pi + zs @ np.linalg.solve(zs + omega, u)
 
 
 def _bounds(n, fixed):
@@ -87,7 +86,7 @@ def _solve(mu, sigma, w0, A, b, bounds):
 
 
 def mean_variance(sigma, mu, fixed):
-    """max w'mu - delta/2 w'Sigma w over the fully invested, capped, long-only books.
+    """max w'mu - delta/2 w'Sigma w over the fully invested, capped, long-only portfolios.
     Starts from equal weight and, if the solver fails, from an LP feasible point."""
     n = len(sigma)
     A = np.vstack([np.ones(n)] + [np.eye(n)[i] for i in fixed])
@@ -97,7 +96,7 @@ def mean_variance(sigma, mu, fixed):
     if not ok:
         lp = linprog(np.zeros(n), A_eq=A, b_eq=b, bounds=bounds, method="highs")
         if not lp.success:
-            raise RuntimeError("the book constraints are infeasible")
+            raise RuntimeError("the portfolio constraints are infeasible")
         w, ok = _solve(mu, sigma, lp.x, A, b, bounds)
     return w, ok
 
@@ -112,7 +111,7 @@ def equal_weight(n, fixed):
 
 
 def hold(d, cols, w, start_pos, end_pos):
-    """Daily simple returns of a book bought at the close of start_pos and held to
+    """Daily simple returns of a portfolio bought at the close of start_pos and held to
     end_pos, and the weights it drifts to. Missing prices carry the last close."""
     px = d["adj"].iloc[:end_pos + 1, cols].ffill().values[start_pos:]
     growth = px[1:] / px[0]
@@ -123,7 +122,7 @@ def hold(d, cols, w, start_pos, end_pos):
 
 
 def run(d, dates, target):
-    """Simulate one book. target(k, pos, cols, fixed) returns weights over cols and
+    """Simulate one portfolio. target(pos, cols, fixed) returns weights over cols and
     a record of the rebalance. Returns daily net returns and per-rebalance records."""
     cal = d["cal"]
     tickers = np.array(d["tickers"])
@@ -140,7 +139,7 @@ def run(d, dates, target):
         names = tickers[cols]
         # a suspended stock cannot be traded: held ones keep their drifted weight, others stay at zero
         fixed = {i: frozen.get(nm, 0.0) for i, nm in enumerate(names) if susp[index[nm]]}
-        w, rec = target(k, pos, cols, fixed)
+        w, rec = target(pos, cols, fixed)
         new = pd.Series(w, index=names)
         turn = float(new.reindex(new.index.union(held.index), fill_value=0.0)
                      .sub(held.reindex(new.index.union(held.index), fill_value=0.0)).abs().sum())

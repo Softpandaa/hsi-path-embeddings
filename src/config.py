@@ -18,9 +18,9 @@ DROPPED = {
 YAHOO_ERRORS = (("0004.HK", "2017-11-16"),)   # spin-off adjustment leaves a false +15.7 per cent
 USDHKD_BAND = (7.7, 7.9)                      # quotes outside are data errors
 
-# factors
-WINDOW = 252
-K_MAX = 4
+# covariance and beta
+WINDOW = 252                  # daily returns before each rebalance
+K_MAX = 4                     # most correlation eigenvalues kept above the noise edge
 
 # LSTM-VAE
 SEQ_LEN = 240
@@ -29,7 +29,7 @@ HIDDEN = 32
 LAYERS = 2
 DROPOUT = 0.25
 LATENT = 2                    # latent size d, and the number of path components in the PCA benchmark
-LATENT_M3 = 3                 # latent size of the second VAE, book M3
+LATENT_M3 = 3                 # latent size of the second VAE, portfolio M3
 LR = 1e-3
 BATCH = 256
 MAX_EPOCHS = 300              # a ceiling only, early stopping ends training
@@ -38,25 +38,25 @@ CLIP = 1.0
 VALID_DAYS = 252              # final twelve months of each training window
 ACTIVE_THRESHOLD = 0.01       # reported check only, Burda et al. (2016)
 
-# books
-WEIGHT_CAP = 0.03             # Proposal 1 single-name limit
-COST_BPS = 15.0               # one way, books and benchmark alike
+# stock portfolios
+WEIGHT_CAP = 0.03             # single-name limit of the proposal
+COST_BPS = 15.0               # one way, portfolios and benchmark alike
 BL_DELTA = 2.5                # Black-Litterman risk aversion, He and Litterman (1999)
-BL_TAU = 0.05                 # prior scale; cancels from the posterior when Omega = diag(tau Sigma)
+BL_ZETA = 0.05                # prior scale zeta; cancels from the posterior when Omega = diag(zeta Sigma)
 
-# fund and options
+# fund and derivatives
 FUND_USD = 100e6
 MULTIPLIER = 50               # HK$ per HSI point
 IM_HKD = 117_705              # HKCC initial margin per HSI futures contract from 2 Mar 2026
 IM_DATE = "2026-03-02"        # the margin ratio IM / (50 S) is taken at this date's close
-CALL_MONEYNESS = 1.04         # P1 short call, first listed strike at or above; middle of Proposal 1's 3 to 5 per cent OTM
-PUT_LONG = 0.95               # P2 long put, first listed strike at or below; Proposal 1 puts 5 to 10 per cent below spot
+CALL_MONEYNESS = 1.04         # P1 short call, first listed strike at or above; middle of the proposal's 3 to 5 per cent OTM
+PUT_LONG = 0.95               # P2 long put, first listed strike at or below; the proposal's puts 5 to 10 per cent below spot
 PUT_SHORT = 0.90              # P2 short put, first listed strike at or below; the put spread of the original notebook
-CALL_BAND = (1.05, 1.10)      # P2 short call at zero net premium, held within Proposal 1's 5 to 10 per cent above spot
-VHSI_ON = 30.0                # P2 on above, Proposal 1 rainy day; its drawdown and PC1 triggers are not used
-VHSI_OFF = 22.0               # P2 off below, Proposal 1 unwind
-DELTA_BUDGET = 0.15           # Proposal 1 delta budget, applied to P2 at entry as a share of NAV
-DD_ON, DD_OFF = 0.05, 0.02    # Proposal 1 drawdown trigger of the book, in the diagnostic arm only
+CALL_BAND = (1.05, 1.10)      # P2 short call at zero net premium, held within the proposal's 5 to 10 per cent above spot
+VHSI_ON = 30.0                # P2 on above, the proposal's rainy day; its drawdown and PC1 triggers are not used
+VHSI_OFF = 22.0               # P2 off below, the proposal's unwind
+DELTA_BUDGET = 0.15           # delta budget of the proposal, applied to P2 at entry as a share of NAV
+DD_ON, DD_OFF = 0.05, 0.02    # drawdown trigger of the proposal, in the full-trigger variant only
 STRIKE_SWITCH = 20_000        # HKEX: 100-point strikes below, 200-point at or above
 STRIKE_STEP_LOW = 100
 STRIKE_STEP_HIGH = 200
@@ -69,9 +69,9 @@ FUTURES_FEES = 10.54          # HSI futures, the same HKEX exchange fee and levy
 FUTURES_HALF_SPREAD = 1.0     # index points, one HSI futures tick (HKEX); the quoted spread itself has no source
 DIV_YIELD = 0.03              # HSI dividend yield in Black-Scholes, 2800.HK 2014 to Aug 2021 average 3.27% rounded
 COVERAGE = 0.5                # h, main case
-COVERAGE_REF = 1.0            # h, reported for reference
-ARMS = ("none", "P1", "P2", "P1+P2")    # P1 yield, P2 protection
-DIAGNOSTIC_ARMS = ("P1 unhedged", "P2 Proposal 1")    # the call without its hedge, P2 on Proposal 1's full trigger
+COVERAGE_FULL = 1.0           # h, full coverage
+SCENARIOS = ("None", "P1", "P2", "P1 and P2")    # P1 yield enhancement, P2 protection
+VARIANTS = ("P1 unhedged", "P2, full trigger")   # P1 without its futures, P2 on the proposal's full trigger
 SHIFT_MAX = 5.0               # vol points, upper end of the break-even search
 
 SEED = 20260920
