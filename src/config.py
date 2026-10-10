@@ -1,11 +1,12 @@
-"""Every parameter of the study, declared once."""
+"""Parameters of the study, each declared here once."""
 
-# sample
+# Sample ----------------------------------------------------------------------
 END = "2026-08-31"
 BACKTEST_START = "2021-09-01"
-REFITS = ("2021-09-01", "2022-09-01", "2023-09-01", "2024-09-01", "2025-09-01")   # first trading day on or after each
+REFITS = ("2021-09-01", "2022-09-01", "2023-09-01", "2024-09-01", "2025-09-01")
+HORIZON = 21  # trading days in a month: equations (3), (5) and (12)
 
-# data cleaning
+# Data cleaning ---------------------------------------------------------------
 DROPPED = {
     "0011.HK": "no Yahoo data, delisted 2026",
     "0203.HK": "no Yahoo data, delisted",
@@ -15,63 +16,63 @@ DROPPED = {
     "0020.HK": "code reused, Yahoo returns SenseTime from 2021",
     "1880.HK": "code reused, Yahoo returns China Tourism Group Duty Free from 2022",
 }
-YAHOO_ERRORS = (("0004.HK", "2017-11-16"),)   # spin-off adjustment leaves a false +15.7 per cent
-USDHKD_BAND = (7.7, 7.9)                      # quotes outside are data errors
+YAHOO_ERRORS = (("0004.HK", "2017-11-16"),)  # spin-off adjustment leaves a false +15.7%
+USDHKD_BAND = (7.7, 7.9)                     # quotes outside are data errors
 
-# covariance and beta
-WINDOW = 252                  # daily returns before each rebalance
-K_MAX = 4                     # most correlation eigenvalues kept above the noise edge
+# Covariance and beta ---------------------------------------------------------
+WINDOW = 252  # daily returns before each rebalance
+K_MAX = 4     # most factors f_k of equation (10)
 
-# LSTM-VAE
-SEQ_LEN = 240
-HORIZON = 21
+# LSTM-VAE --------------------------------------------------------------------
+SEQ_LEN = 240            # L
 HIDDEN = 32
 LAYERS = 2
 DROPOUT = 0.25
-LATENT = 2                    # latent size d, and the number of path components in the PCA benchmark
-LATENT_M3 = 3                 # latent size of the second VAE, portfolio M3
+LATENT = 2               # d, also the number of PCA components
+LATENT_M3 = 3            # d of the VAE of M3
 LR = 1e-3
 BATCH = 256
-MAX_EPOCHS = 300              # a ceiling only, early stopping ends training
+MAX_EPOCHS = 300
 PATIENCE = 10
-CLIP = 1.0
-VALID_DAYS = 252              # final twelve months of each training window
-ACTIVE_THRESHOLD = 0.01       # reported check only, Burda et al. (2016)
+CLIP = 1.0               # gradient norm
+VALID_DAYS = 252         # final twelve months before each refit
+ACTIVE_THRESHOLD = 0.01  # active unit: posterior-mean variance above this, Table A.2
+SEED = 20260920
 
-# stock portfolios
-WEIGHT_CAP = 0.03             # single-name limit of the proposal
-COST_BPS = 15.0               # one way, portfolios and benchmark alike
-BL_DELTA = 2.5                # Black-Litterman risk aversion, He and Litterman (1999)
-BL_ZETA = 0.05                # prior scale zeta; cancels from the posterior when Omega = diag(zeta Sigma)
+# Stock portfolios ------------------------------------------------------------
+WEIGHT_CAP = 0.03
+COST_BPS = 15.0  # one way
+BL_DELTA = 2.5   # delta of equation (5)
+BL_ZETA = 0.05   # zeta of equation (5); cancels from (6)
 
-# fund and derivatives
+# Contracts and costs ---------------------------------------------------------
 FUND_USD = 100e6
-MULTIPLIER = 50               # HK$ per HSI point
-IM_HKD = 117_705              # HKCC initial margin per HSI futures contract from 2 Mar 2026
-IM_DATE = "2026-03-02"        # the margin ratio IM / (50 S) is taken at this date's close
-CALL_MONEYNESS = 1.04         # P1 short call, first listed strike at or above; middle of the proposal's 3 to 5 per cent OTM
-PUT_LONG = 0.95               # P2 long put, first listed strike at or below; the proposal's puts 5 to 10 per cent below spot
-PUT_SHORT = 0.90              # P2 short put, first listed strike at or below; the put spread of the original notebook
-CALL_BAND = (1.05, 1.10)      # P2 short call at zero net premium, held within the proposal's 5 to 10 per cent above spot
-VHSI_ON = 30.0                # P2 on above, the proposal's rainy day; its drawdown and PC1 triggers are not used
-VHSI_OFF = 22.0               # P2 off below, the proposal's unwind
-DELTA_BUDGET = 0.15           # delta budget of the proposal, applied to P2 at entry as a share of NAV
-DD_ON, DD_OFF = 0.05, 0.02    # drawdown trigger of the proposal, in the full-trigger variant only
-STRIKE_SWITCH = 20_000        # HKEX: 100-point strikes below, 200-point at or above
+MULTIPLIER = 50            # HK$ per HSI point
+IM_HKD = 117_705           # HKCC initial margin per HSI futures contract from 2 Mar 2026
+IM_DATE = "2026-03-02"     # S_M of equation (13) is this close
+STRIKE_SWITCH = 20_000     # STRIKE_STEP_LOW below, STRIKE_STEP_HIGH at or above
 STRIKE_STEP_LOW = 100
 STRIKE_STEP_HIGH = 200
-SPREAD_MIN = 30               # HKEX market maker maximum spread max(30, 10% of bid) up to 750 points
+SPREAD_MIN = 30            # psi of equation (14), index points
 SPREAD_PCT = 0.10
 SPREAD_LIMIT = 750
 SPREAD_ABOVE = 75
-OPTION_FEES = 10.54           # exchange fee 10.00 plus commission levy 0.54, per contract per side
-FUTURES_FEES = 10.54          # HSI futures, the same HKEX exchange fee and levy per contract per side
-FUTURES_HALF_SPREAD = 1.0     # index points, one HSI futures tick (HKEX); the quoted spread itself has no source
-DIV_YIELD = 0.03              # HSI dividend yield in Black-Scholes, 2800.HK 2014 to Aug 2021 average 3.27% rounded
-COVERAGE = 0.5                # h, main case
-COVERAGE_FULL = 1.0           # h, full coverage
-SCENARIOS = ("None", "P1", "P2", "P1 and P2")    # P1 yield enhancement, P2 protection
-VARIANTS = ("P1 unhedged", "P2, full trigger")   # P1 without its futures, P2 on the proposal's full trigger
-SHIFT_MAX = 5.0               # vol points, upper end of the break-even search
+OPTION_FEES = 10.54        # HK$ per contract per side
+FUTURES_FEES = 10.54       # HK$ per contract per side
+FUTURES_HALF_SPREAD = 1.0  # index points, one tick
+DIV_YIELD = 0.03           # q
 
-SEED = 20260920
+# Derivatives strategies ------------------------------------------------------
+CALL_MONEYNESS = 1.04       # P1 strike over S, rounded up to a listed strike
+PUT_LONG = 0.95             # K1 over S, rounded down to a listed strike
+PUT_SHORT = 0.90            # K2 over S, rounded down to a listed strike
+CALL_BAND = (1.05, 1.10)    # K3 over S: zero net premium strike held in the band, rounded up
+VHSI_ON = 30.0              # P2 on above
+VHSI_OFF = 22.0             # P2 off below
+DELTA_BUDGET = 0.15         # cap on P2 |delta| at entry, share of NAV
+DD_ON, DD_OFF = 0.05, 0.02  # drawdown on and off, "P2, full trigger" only
+COVERAGE = 0.5              # h, base case
+COVERAGE_FULL = 1.0         # h of Appendix E
+SCENARIOS = ("None", "P1", "P2", "P1 and P2")  # P1 yield, P2 protection
+VARIANTS = ("P1 unhedged", "P2, full trigger")
+SHIFT_MAX = 5.0             # vol points, upper end of the break-even search

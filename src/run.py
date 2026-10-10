@@ -1,10 +1,4 @@
-"""The backtest, September 2021 to August 2026, after the embeddings are in cache/.
-
-    python -m src.vae               embeddings of the LSTM-VAE, d = 2 (GPU)
-    python -m src.vae --latent 3    embeddings of the LSTM-VAE, d = 3 (GPU)
-    python -m src.pca               embeddings of PCA
-    python -m src.run               portfolios, forecasts, derivatives strategies -> cache/results.pkl
-"""
+"""Backtest of Sections 3.3 to 3.5 from the embeddings in cache/, saved to cache/results.pkl."""
 
 import pickle
 
@@ -14,25 +8,26 @@ import pandas as pd
 from . import config, data, derivatives, forecast, portfolios
 
 VAE3 = f"vae{config.LATENT_M3}"
-EMBEDDINGS = ("vae", VAE3, "pca")             # VAE d = LATENT, VAE d = LATENT_M3, PCA with LATENT components
+EMBEDDINGS = ("vae", VAE3, "pca")  # VAE with d = LATENT and d = LATENT_M3, PCA
 FORECAST_PORTFOLIOS = {"M2-PCA": "pca", "M2-VAE": "vae", "M3": VAE3}
+PORTFOLIOS = ("EW", "M1", *FORECAST_PORTFOLIOS)
+M2 = ("M2-PCA", "M2-VAE")
 
 
 class Weights:
-    """Target weights of every portfolio at a rebalance, sharing the universe, the
-    covariance and M1 across portfolios."""
+    """Target weights of every portfolio at a rebalance, sharing the universe, Sigma, Pi and M1."""
 
     def __init__(self, d, forecasters, refit_pos):
         self.d, self.forecasters, self.refit_pos = d, forecasters, refit_pos
         self.cache = {}
 
-    def forecaster(self, kind, pos):
+    def predict(self, kind, pos):
+        """Forecasts u_hat of equation (4) at the rebalance in row pos, from the day before."""
         k = max(i for i, p in enumerate(self.refit_pos) if p <= pos)
-        return self.forecasters[kind][k]
+        return self.forecasters[kind][k].predict(pos - 1)
 
     def columns(self, pos):
-        pred = self.forecaster(EMBEDDINGS[0], pos).predict(pos - 1)
-        return portfolios.universe(self.d, pos, pred.index.values)
+        return portfolios.universe(self.d, pos, self.predict(EMBEDDINGS[0], pos).index.values)
 
     def common(self, pos, cols, fixed):
         key = (pos, tuple(cols), tuple(sorted(fixed.items())))
@@ -54,9 +49,9 @@ class Weights:
                 return portfolios.equal_weight(len(cols), fixed), rec
             if name == "M1":
                 return w1, rec
-            u = self.forecaster(FORECAST_PORTFOLIOS[name], pos).predict(pos - 1).reindex(cols).values
+            u = self.predict(FORECAST_PORTFOLIOS[name], pos).reindex(cols).values
             w, ok = portfolios.mean_variance(sigma, portfolios.posterior(sigma, pi, u), fixed)
-            if not ok:                                         # hold M1 if the solver fails
+            if not ok:  # hold M1 if the solver fails
                 w = w1
             rec["solver_ok"] = ok
             return w, rec
@@ -78,12 +73,14 @@ def main():
     refits = data.refit_dates(cal)
     refit_pos = [cal.get_loc(r) for r in refits]
     u = forecast.relative(d, forecast.excess(d))
-    forecasters = {kind: [forecast.Forecaster(kind, r.year, p, u) for r, p in zip(refits, refit_pos)]
+    forecasters = {kind: [forecast.Forecaster(kind, r.year, p, u)
+                          for r, p in zip(refits, refit_pos)]
                    for kind in EMBEDDINGS}
     weights = Weights(d, forecasters, refit_pos)
 
-    out = {"dates": dates, "regressions": {k: [(f.coef, f.r2) for f in v] for k, v in forecasters.items()}}
-    for name in ["EW", "M1"] + list(FORECAST_PORTFOLIOS):
+    regressions = {k: [(f.coef, f.r2) for f in v] for k, v in forecasters.items()}
+    out = {"dates": dates, "regressions": regressions}
+    for name in PORTFOLIOS:
         r, rec = portfolios.run(d, dates, weights.portfolio(name))
         out[name] = {"returns": r, "records": rec}
         print(f"{name}: {len(rec)} rebalances, M1 held after solver failure "
@@ -96,29 +93,29 @@ def main():
         for k, t in enumerate(dates):
             pos = cal.get_loc(t)
             cols = weights.columns(pos)
-            pred = weights.forecaster(kind, pos).predict(pos - 1).reindex(cols)
+            pred = weights.predict(kind, pos).reindex(cols)
             pred.index = tickers[cols]
             ics.append(forecast.rank_ic(pred, realized[k].reindex(tickers[cols])))
         out[f"ic_{kind}"] = pd.Series(ics, index=dates)
 
-    # every proposed portfolio at the main coverage, M2-PCA and M2-VAE also with the variants and at full coverage
+    # all but EW at COVERAGE, the M2 portfolios also with the variants and at COVERAGE_FULL
     out["derivatives"] = {}
-    for name in ["M1"] + list(FORECAST_PORTFOLIOS):
+    for name in PORTFOLIOS[1:]:
         runs = [(config.COVERAGE, sc) for sc in config.SCENARIOS]
-        if name in ("M2-PCA", "M2-VAE"):
+        if name in M2:
             runs += ([(config.COVERAGE, sc) for sc in config.VARIANTS]
                      + [(config.COVERAGE_FULL, sc) for sc in config.SCENARIOS])
         for h, sc in runs:
             nav, info = derivatives.run(d, out[name]["returns"], out[name]["records"], sc, h)
             out["derivatives"][(name, h, sc)] = {"nav": nav, "info": info}
-    out["breakeven"] = derivatives.breakeven(d, out["M2-PCA"]["returns"], out["M2-PCA"]["records"], "P1 and P2",
-                                             config.COVERAGE, d["cash"])
+    out["breakeven"] = derivatives.breakeven(d, out["M2-PCA"]["returns"], out["M2-PCA"]["records"],
+                                             "P1 and P2", config.COVERAGE)
     print(f"derivatives done, break-even shift of P1 and P2 on M2-PCA {out['breakeven']:.2f}")
-    out["implied_realized"] = derivatives.implied_realized(
-        d, out["derivatives"][("M2-PCA", config.COVERAGE, "P1")]["info"]["p1"])
+    p1 = out["derivatives"][("M2-PCA", config.COVERAGE, "P1")]["info"]["p1"]
+    out["implied_realized"] = derivatives.implied_realized(d, p1)
     out["tracker"] = d["tracker"].pct_change()
     out["cash"] = d["cash"]
-    with open(forecast.CACHE / "results.pkl", "wb") as fh:
+    with open(data.CACHE / "results.pkl", "wb") as fh:
         pickle.dump(out, fh)
     print("saved cache/results.pkl")
 

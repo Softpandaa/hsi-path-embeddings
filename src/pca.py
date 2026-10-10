@@ -1,9 +1,4 @@
-"""The linear embedding: the scores on the first d principal components of the
-cumulative return path, fitted at each refit on the same training sequences as
-the VAE, with scores saved for the same days and the eigenvalues and loadings.
-
-    python -m src.pca
-"""
+"""The PCA embedding of Section 3.2: scores of the path (1) on its first d principal components."""
 
 import numpy as np
 import torch
@@ -14,6 +9,7 @@ CHUNK = 20_000
 
 
 def paths(batch, t, j):
+    """Paths c of equation (1) of the windows ending on days t of stocks j."""
     out = []
     for s in range(0, len(t), CHUNK):
         out.append(batch(t[s:s + CHUNK], j[s:s + CHUNK])[1].numpy().astype(np.float64))
@@ -21,6 +17,7 @@ def paths(batch, t, j):
 
 
 def fit(d, x, batch, refit_pos):
+    """Mean, eigenvalues and first d loadings of the training paths at a refit, and their count."""
     tt, jt, _, _ = vae.training_split(d, x, refit_pos)
     c = paths(batch, tt, jt)
     mean = c.mean(axis=0)
@@ -34,19 +31,18 @@ def main():
     d = data.load()
     x = features.build(d)
     f = x.shape[-1]
-    # the path uses only the return channel, standardized per sequence, so the
-    # pooled feature scaling does not enter
+    # the path uses only the return channel, standardized per window, so no pooled scaling
     batch = vae.Batcher(x, np.zeros(f, np.float32), np.ones(f, np.float32), torch.device("cpu"))
     refits = data.refit_dates(d["cal"])
     positions = [d["cal"].get_loc(r) for r in refits] + [len(d["cal"])]
-    vae.CACHE.mkdir(exist_ok=True)
+    data.CACHE.mkdir(exist_ok=True)
     for k, r in enumerate(refits):
         pos, nxt = positions[k], positions[k + 1]
         mean, lam, vec, n = fit(d, x, batch, pos)
         t, j = vae.window_days(d, x, 0, nxt)
         scores = (paths(batch, t, j) - mean) @ vec
-        np.savez_compressed(vae.CACHE / f"embedding_pca_{r.year}.npz", day=t, stock=j, mu=scores,
-                            eigenvalues=lam, loadings=vec)
+        np.savez_compressed(data.CACHE / f"embedding_pca_{r.year}.npz", day=t, stock=j,
+                            mu=scores, eigenvalues=lam, loadings=vec)
         share = lam[:config.LATENT].sum() / lam.sum()
         print(f"refit {r.date()}: n_train {n}, top eigenvalues {np.round(lam[:4], 1)}, "
               f"share of first {config.LATENT} {share:.3f}, scores saved {len(t)}")

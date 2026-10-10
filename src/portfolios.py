@@ -1,23 +1,4 @@
-"""Stock portfolios: the universe, the clipped covariance, and the Black-Litterman
-portfolios M1, M2 and M3 and equal weight.
-
-At each rebalance tau, with information to the previous close and trades at the
-close of tau, in one-month units (h = HORIZON trading days):
-    universe  members with a price on tau, 252 complete returns before it, and an
-              embedding on the previous day
-    Sigma     h times the sample covariance of the 252 daily log returns, correlation
-              eigenvalues beyond the first K replaced by their average,
-              K = min(#{lambda > (1 + sqrt(p/T))^2}, K_MAX), unit diagonal restored
-    Pi        delta Sigma w_HSI = delta h cov(r, r_HSI), the equilibrium returns with
-              the HSI as the market portfolio (He and Litterman 1999)
-    M1        the prior alone, mu = Pi
-    M2, M3    views that each stock beats its equilibrium return by its relative
-              forecast, q = Pi + u - mean(u), with Omega = diag(zeta Sigma), so
-              mu = Pi + zeta Sigma (zeta Sigma + Omega)^{-1} (u - mean(u))
-    both      max w'mu - delta/2 w'Sigma w  s.t.  1'w = 1, 0 <= w <= cap,
-              a suspended stock keeps its drifted weight
-Portfolios are held without trading inside the month and pay COST_BPS one way on turnover.
-"""
+"""Stock portfolios of Section 3.4: universe, covariance (Appendix B), Black-Litterman weights."""
 
 import numpy as np
 import pandas as pd
@@ -26,19 +7,29 @@ from scipy.optimize import linprog, minimize
 from . import config
 
 
+def _window(pos):
+    """Rows of the WINDOW + 1 closes before row pos, which give WINDOW daily returns."""
+    return slice(pos - config.WINDOW - 1, pos)
+
+
+def returns(d, pos, cols):
+    """Daily log returns of the stocks cols and of the HSI over the window before row pos."""
+    r = np.diff(np.log(d["adj"].values[_window(pos), cols]), axis=0)
+    m = np.diff(np.log(d["hsi"]["close"].values[_window(pos)]))
+    return r, m
+
+
 def universe(d, pos, embedded):
-    """Stock columns eligible at the rebalance in row pos."""
+    """Stock columns of U_k at the rebalance in row pos."""
     adj = d["adj"].values
-    window = adj[pos - config.WINDOW - 1:pos]                       # prices for 252 returns
-    ok = np.isfinite(window).all(axis=0) & np.isfinite(adj[pos]) & d["member"].values[pos]
-    ok &= np.isin(np.arange(adj.shape[1]), embedded)
+    ok = np.isfinite(adj[_window(pos)]).all(axis=0) & np.isfinite(adj[pos])
+    ok &= d["member"].values[pos] & np.isin(np.arange(adj.shape[1]), embedded)
     return np.nonzero(ok)[0]
 
 
 def covariance(d, pos, cols):
-    """Clipped one-month covariance and the equilibrium returns Pi."""
-    px = d["adj"].values[pos - config.WINDOW - 1:pos, cols]
-    r = np.diff(np.log(px), axis=0)
+    """Sigma_k of equations (10) to (12) and Pi_k of equation (5)."""
+    r, m = returns(d, pos, cols)
     T, p = r.shape
     sd = r.std(axis=0, ddof=1)
     c = np.corrcoef(r, rowvar=False)
@@ -52,16 +43,14 @@ def covariance(d, pos, cols):
     s = np.sqrt(np.diag(cc))
     cc = cc / np.outer(s, s)
     sigma = config.HORIZON * cc * np.outer(sd, sd)
-    m = np.diff(np.log(d["hsi"]["close"].values[pos - config.WINDOW - 1:pos]))
     cov_m = ((r - r.mean(axis=0)) * (m - m.mean())[:, None]).sum(axis=0) / (T - 1)
     pi = config.BL_DELTA * config.HORIZON * cov_m
     return sigma, pi
 
 
 def posterior(sigma, pi, u):
-    """Expected returns with the views q = Pi + u - mean(u), P = I and
-    Omega = diag(zeta Sigma); zeta cancels from the tilt."""
-    u = np.where(np.isfinite(u), u - np.nanmean(u), 0.0)     # NaN for frozen names only; their weight is fixed
+    """mu^BL of equation (6) from the forecasts u."""
+    u = np.where(np.isfinite(u), u - np.nanmean(u), 0.0)  # no forecast: the view is the prior
     zs = config.BL_ZETA * sigma
     omega = np.diag(np.diag(zs))
     return pi + zs @ np.linalg.solve(zs + omega, u)
@@ -77,7 +66,8 @@ def _bounds(n, fixed):
 def _solve(mu, sigma, w0, A, b, bounds):
     scale = np.mean(np.diag(sigma))
     res = minimize(lambda w: -(w @ mu - 0.5 * config.BL_DELTA * w @ sigma @ w) / scale, w0,
-                   jac=lambda w: -(mu - config.BL_DELTA * sigma @ w) / scale, method="SLSQP", bounds=bounds,
+                   jac=lambda w: -(mu - config.BL_DELTA * sigma @ w) / scale,
+                   method="SLSQP", bounds=bounds,
                    constraints=[{"type": "eq", "fun": lambda w: A @ w - b, "jac": lambda w: A}],
                    options={"maxiter": 1000, "ftol": 1e-14})
     w = np.clip(res.x, 0.0, None)
@@ -86,11 +76,10 @@ def _solve(mu, sigma, w0, A, b, bounds):
 
 
 def mean_variance(sigma, mu, fixed):
-    """max w'mu - delta/2 w'Sigma w over the fully invested, capped, long-only portfolios.
-    Starts from equal weight and, if the solver fails, from an LP feasible point."""
+    """w_k of equation (7), from equal weight or, if SLSQP fails, from an LP feasible point."""
     n = len(sigma)
     A = np.vstack([np.ones(n)] + [np.eye(n)[i] for i in fixed])
-    b = np.array([1.0] + list(fixed.values()))
+    b = np.array([1.0, *fixed.values()])
     bounds = _bounds(n, fixed)
     w, ok = _solve(mu, sigma, equal_weight(n, fixed), A, b, bounds)
     if not ok:
@@ -111,9 +100,8 @@ def equal_weight(n, fixed):
 
 
 def hold(d, cols, w, start_pos, end_pos):
-    """Daily simple returns of a portfolio bought at the close of start_pos and held to
-    end_pos, and the weights it drifts to. Missing prices carry the last close."""
-    px = d["adj"].iloc[:end_pos + 1, cols].ffill().values[start_pos:]
+    """Daily returns of w held from the close of start_pos to end_pos, and the drifted weights."""
+    px = d["adj"].iloc[:end_pos + 1, cols].ffill().values[start_pos:]  # a gap keeps the last close
     growth = px[1:] / px[0]
     value = growth @ w
     prev = np.concatenate([[1.0], value[:-1]])
@@ -122,10 +110,10 @@ def hold(d, cols, w, start_pos, end_pos):
 
 
 def run(d, dates, target):
-    """Simulate one portfolio. target(pos, cols, fixed) returns weights over cols and
-    a record of the rebalance. Returns daily net returns and per-rebalance records."""
+    """Daily net returns and rebalance records of target(pos, cols, fixed) -> (weights, record)."""
     cal = d["cal"]
     tickers = np.array(d["tickers"])
+    index = {t: i for i, t in enumerate(tickers)}
     positions = [cal.get_loc(t) for t in dates] + [len(cal) - 1]
     held = pd.Series(dtype=float)
     rets, records = [], []
@@ -133,16 +121,16 @@ def run(d, dates, target):
         pos, end = positions[k], positions[k + 1]
         susp = d["suspended"].values[pos]
         cols_all = target.columns(pos)
-        index = {t: i for i, t in enumerate(tickers)}
         frozen = {c: held[c] for c in held.index if susp[index[c]]}
         cols = np.array(sorted(set(cols_all) | {index[c] for c in frozen}))
         names = tickers[cols]
-        # a suspended stock cannot be traded: held ones keep their drifted weight, others stay at zero
+        # a suspended stock cannot be traded: if held it keeps its drifted weight, else zero
         fixed = {i: frozen.get(nm, 0.0) for i, nm in enumerate(names) if susp[index[nm]]}
         w, rec = target(pos, cols, fixed)
         new = pd.Series(w, index=names)
-        turn = float(new.reindex(new.index.union(held.index), fill_value=0.0)
-                     .sub(held.reindex(new.index.union(held.index), fill_value=0.0)).abs().sum())
+        both = new.index.union(held.index)
+        turn = float(new.reindex(both, fill_value=0.0)
+                     .sub(held.reindex(both, fill_value=0.0)).abs().sum())
         cost = turn * config.COST_BPS / 1e4
         r, drift = hold(d, cols, w, pos, end)
         if not np.isfinite(r).all():
@@ -151,6 +139,7 @@ def run(d, dates, target):
         rets.append(pd.Series(r, index=cal[pos + 1:end + 1]))
         held = pd.Series(drift, index=names)
         held = held[held > 0]
-        rec.update({"date": tau, "turnover": turn, "n": int((w > 1e-6).sum()), "weights": new[new > 1e-9]})
+        rec.update({"date": tau, "turnover": turn, "n": int((w > 1e-6).sum()),
+                    "weights": new[new > 1e-9]})
         records.append(rec)
     return pd.concat(rets), records
